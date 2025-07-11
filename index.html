@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComfyUI Registry Cache Control Architecture</title>
+    <script src="https://unpkg.com/mermaid@11.8.1/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            margin-bottom: 40px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .mermaid {
+            text-align: center;
+            margin: 20px 0;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        h1 {
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        h2 {
+            border-bottom: 1px solid #666;
+            padding-bottom: 5px;
+        }
+        .scenario {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ComfyUI Registry Cache Control Architecture</h1>
+    
+    <div class="container">
+        <h2>Data Storage Systems</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Device</th>
+                    <th>How it Works</th>
+                    <th>Persist Time</th>
+                    <th>How to Update/Invalidate</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>DB</strong></td>
+                    <td>Database Server</td>
+                    <td>Persistent database storage, single source of truth</td>
+                    <td>Forever</td>
+                    <td>Updated by ComfyAPI server operations</td>
+                </tr>
+                <tr>
+                    <td><strong>server-mem-cache</strong></td>
+                    <td>ComfyAPI Server Memory</td>
+                    <td>In-memory cache per server instance</td>
+                    <td>Until deployment/restart</td>
+                    <td>invalidateCache() method called on data updates</td>
+                </tr>
+                <tr>
+                    <td><strong>Reverse Proxy Cache</strong></td>
+                    <td>Proxy Server (GCP/Nginx/CDN)</td>
+                    <td>Caches public API responses between users and servers</td>
+                    <td>Per cache-control header</td>
+                    <td>Client refetch with "cache-control: no-cache" header</td>
+                </tr>
+                <tr>
+                    <td><strong>Browser Disk Cache</strong></td>
+                    <td>User's Browser Disk</td>
+                    <td>HTTP cache stored on disk by fetch() API</td>
+                    <td>Per cache-control header</td>
+                    <td>Browser cache settings or no-cache headers</td>
+                </tr>
+                <tr>
+                    <td><strong>localStorage</strong></td>
+                    <td>User's Browser Storage</td>
+                    <td>ReactQuery cache persisted locally, shared across tabs</td>
+                    <td>Until manually cleared</td>
+                    <td>ReactQuery invalidateQueries()</td>
+                </tr>
+                <tr>
+                    <td><strong>sessionStorage</strong></td>
+                    <td>User's Browser Session</td>
+                    <td>ReactQuery cache per session, shared within tab navigation</td>
+                    <td>Until session ends</td>
+                    <td>ReactQuery invalidateQueries()</td>
+                </tr>
+                <tr>
+                    <td><strong>queryClient</strong></td>
+                    <td>User's Browser Memory</td>
+                    <td>ReactQuery in-memory cache, fastest access</td>
+                    <td>Until page refresh</td>
+                    <td>ReactQuery invalidateQueries()</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="container">
+        <h2>Invalidation Methods Matrix</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Invalidation Method</th>
+                    <th>queryClient</th>
+                    <th>localStorage</th>
+                    <th>sessionStorage</th>
+                    <th>Browser Disk Cache</th>
+                    <th>Reverse Proxy Cache</th>
+                    <th>server-mem-cache</th>
+                    <th>DB</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>ReactQuery invalidateQueries</strong></td>
+                    <td></td>
+                    <td>✅</td>
+                    <td>✅</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><strong>Refetch with NO-CACHE header</strong></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td>✅</td>
+                    <td>✅*</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><strong>ComfyAPI invalidateCache</strong></td>
+                    <td>✅</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td>✅</td>
+                    <td>already latest</td>
+                </tr>
+                <tr>
+                    <td><strong>Database Update</strong></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td>✅</td>
+                </tr>
+                <tr>
+                    <td><strong>Server Restart/Deployment</strong></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td>✅</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><strong>Browser Refresh</strong></td>
+                    <td>✅</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><strong>Session End</strong></td>
+                    <td></td>
+                    <td></td>
+                    <td>✅</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+        <p><strong>Legend:</strong> ✅ = Can invalidate, ✅* = Partial invalidation (affects only one user or small subset of users), "already latest" = Data is usually already latest, empty = No changes</p>
+    </div>
+
+    <div class="container">
+        <h2>Cache Architecture Overview</h2>
+        <div class="mermaid">
+            graph TB
+                U[User Browser] --> M[Memory Cache]
+                U --> L[localStorage]
+                U --> S[sessionStorage]
+                U --> BD[Browser Disk Cache]
+                
+                U --> RP[Reverse Proxy Cache]
+                RP --> API[ComfyAPI Server]
+                API --> SC[Server Cache]
+                API --> DB[(Database)]
+                
+                subgraph "User Device"
+                    M
+                    L
+                    S
+                    BD
+                end
+                
+                subgraph "Network Layer"
+                    RP
+                end
+                
+                subgraph "Backend"
+                    API
+                    SC
+                    DB
+                end
+                
+                style U fill:#e1f5fe
+                style DB fill:#c8e6c9
+                style RP fill:#fff3e0
+                style API fill:#f3e5f5
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Scenario 1: Node Claiming Process (Current Implementation)</h2>
+        <div class="scenario">
+            <p><strong>Flow:</strong> Alice claims a node from @Unclaimed to @alice</p>
+        </div>
+        <div class="mermaid">
+            sequenceDiagram
+                participant A as Alice Browser
+                participant M as Memory Cache
+                participant L as localStorage
+                participant RP as Reverse Proxy
+                participant API as ComfyAPI Server
+                participant SC as Server Cache
+                participant DB as Database
+                
+                A->>+API: Claim node request
+                API->>+DB: Update node publisher
+                DB-->>-API: Success
+                API->>SC: invalidateMemCache(/nodes/nodeId)
+                API-->>-A: Claim success response
+                
+                A->>M: invalidateQueries(/nodes/nodeId)
+                A->>L: invalidateQueries(/nodes/nodeId)
+                
+                A->>+A: Navigate to /publisher/@alice/nodes/nodeId
+                A->>M: Check cache (stale data ~200ms)
+                M-->>A: Show @unclaimed briefly
+                
+                A->>+RP: Fetch /nodes/nodeId (no no-cache)
+                RP->>+API: Fetch from upstream
+                API->>SC: Check cache (miss)
+                API->>+DB: Query latest data
+                DB-->>-API: Return @alice data
+                API-->>-RP: Return @alice data
+                RP-->>-A: Return @alice data
+                
+                A->>A: Display @alice (success!)
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Scenario 2: Node Claiming with Cache Control (Improved)</h2>
+        <div class="scenario">
+            <p><strong>Flow:</strong> Alice claims a node and uses no-cache header to ensure proxy cache invalidation</p>
+        </div>
+        <div class="mermaid">
+            sequenceDiagram
+                participant A as Alice Browser
+                participant M as Memory Cache
+                participant L as localStorage
+                participant RP as Reverse Proxy
+                participant API as ComfyAPI Server
+                participant SC as Server Cache
+                participant DB as Database
+                
+                A->>+API: Claim node request
+                API->>+DB: Update node publisher
+                DB-->>-API: Success
+                API->>SC: invalidateMemCache(/nodes/nodeId)
+                API-->>-A: Claim success response
+                
+                A->>M: invalidateQueries(/nodes/nodeId)
+                A->>L: invalidateQueries(/nodes/nodeId)
+                
+                Note over A,RP: Alice refetches with no-cache header
+                A->>+RP: Fetch /nodes/nodeId (cache-control: no-cache)
+                RP->>+API: Fetch from upstream (cache-control: no-cache)
+                API->>+DB: Query latest data
+                DB-->>-API: Return @alice data
+                API-->>-RP: Return @alice data
+                RP->>RP: Update cache with @alice data
+                RP-->>-A: Return @alice data
+                
+                A->>A: Display @alice (success!)
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Scenario 3: Multi-User Cache Propagation</h2>
+        <div class="scenario">
+            <p><strong>Flow:</strong> Alice claims a node, Bob and Carol (different ISPs) see the updated data</p>
+        </div>
+        <div class="mermaid">
+            sequenceDiagram
+                participant A as Alice Browser
+                participant B as Bob Browser
+                participant C as Carol Browser
+                participant RP1 as Proxy (Alice/Bob ISP)
+                participant RP2 as Proxy (Carol ISP)
+                participant API as ComfyAPI Server
+                participant DB as Database
+                
+                Note over A,DB: Alice claims the node
+                A->>+API: Claim node request
+                API->>+DB: Update node publisher
+                DB-->>-API: Success
+                API-->>-A: Claim success response
+                
+                Note over A,RP1: Alice invalidates proxy cache
+                A->>+RP1: Fetch /nodes/nodeId (cache-control: no-cache)
+                RP1->>+API: Fetch from upstream (no-cache)
+                API->>+DB: Query latest data
+                DB-->>-API: Return @alice data
+                API-->>-RP1: Return @alice data
+                RP1->>RP1: Cache @alice data
+                RP1-->>-A: Return @alice data
+                
+                Note over B,RP1: Bob refocuses on page
+                B->>+RP1: Fetch /nodes/nodeId (normal request)
+                RP1-->>-B: Return cached @alice data
+                B->>B: Display @alice (updated!)
+                
+                Note over C,RP2: Carol refocuses on page
+                C->>+RP2: Fetch /nodes/nodeId (normal request)
+                RP2->>+API: Fetch from upstream (cache miss)
+                API->>+DB: Query latest data
+                DB-->>-API: Return @alice data
+                API-->>-RP2: Return @alice data
+                RP2->>RP2: Cache @alice data
+                RP2-->>-C: Return @alice data
+                C->>C: Display @alice (updated!)
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Invalidation Methods Summary</h2>
+        <div class="mermaid">
+            graph LR
+                subgraph "Client Side"
+                    RQ[ReactQuery invalidateQueries]
+                    RQ --> LC[localStorage Cache]
+                    RQ --> SC[sessionStorage Cache]
+                    RQ --> MC[Memory Cache]
+                end
+                
+                subgraph "Server Side"
+                    IC[ComfyAPI invalidateCache]
+                    IC --> SMC[Server Memory Cache]
+                end
+                
+                subgraph "Network Level"
+                    NCH[Refetch with no-cache header]
+                    NCH --> RPC[Reverse Proxy Cache]
+                    NCH --> BDC[Browser Disk Cache]
+                end
+                
+                style RQ fill:#e3f2fd
+                style IC fill:#e8f5e8
+                style NCH fill:#fff3e0
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#e1f5fe',
+                primaryTextColor: '#333',
+                primaryBorderColor: '#01579b',
+                lineColor: '#666',
+                sectionBkgColor: '#f9f9f9',
+                altSectionBkgColor: '#f1f1f1',
+                gridColor: '#e0e0e0',
+                tertiaryColor: '#f3e5f5'
+            }
+        });
+    </script>
+</body>
+</html>
